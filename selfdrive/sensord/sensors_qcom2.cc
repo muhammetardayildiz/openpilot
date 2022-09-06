@@ -25,8 +25,40 @@
 
 #define I2C_BUS_IMU 1
 
+constexpr const char* PM_GYRO =  "gyroscope";
+constexpr const char* PM_ACCEL = "accelerometer";
+constexpr const char* PM_MAGN =  "magnetometer";
+constexpr const char* PM_LIGHT = "lightSensor";
+constexpr const char* PM_TEMP =  "temperatureSensor";
+
 ExitHandler do_exit;
 std::mutex pm_mutex;
+
+void send_message(PubMaster& pm, MessageBuilder& msg, int sensor_type) {
+  std::string service;
+  switch(sensor_type) {
+    case SENSOR_TYPE_GYROSCOPE:
+    case SENSOR_TYPE_GYROSCOPE_UNCALIBRATED:
+      service = PM_GYRO; break;
+    case SENSOR_TYPE_ACCELEROMETER:
+      service = PM_ACCEL; break;
+    case SENSOR_TYPE_LIGHT:
+      service = PM_LIGHT; break;
+    case SENSOR_TYPE_MAGNETIC_FIELD:
+    case SENSOR_TYPE_MAGNETIC_FIELD_UNCALIBRATED:
+      service = PM_MAGN; break;
+    case SENSOR_TYPE_AMBIENT_TEMPERATURE:
+      service = PM_TEMP; break;
+    default:
+      // should never happen
+      return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(pm_mutex);
+    pm.send(service.c_str(), msg);
+  }
+}
 
 void interrupt_loop(int fd, std::vector<Sensor *>& sensors, PubMaster& pm) {
   struct pollfd fd_list[1] = {0};
@@ -63,34 +95,17 @@ void interrupt_loop(int fd, std::vector<Sensor *>& sensors, PubMaster& pm) {
     int num_events = err / sizeof(*evdata);
     uint64_t ts = evdata[num_events - 1].timestamp - offset;
 
-    MessageBuilder msg;
-    auto orphanage = msg.getOrphanage();
-    std::vector<capnp::Orphan<cereal::SensorEventData>> collected_events;
-    collected_events.reserve(sensors.size());
-
     for (Sensor *sensor : sensors) {
-      auto orphan = orphanage.newOrphan<cereal::SensorEventData>();
-      auto event = orphan.get();
-      if (!sensor->get_event(event)) {
+      MessageBuilder msg;
+      auto sensor_event = msg.initEvent().initSensorEvent();
+      if (!sensor->get_event(sensor_event)) {
         continue;
       }
 
-      event.setTimestamp(ts);
-      collected_events.push_back(kj::mv(orphan));
-    }
-
-    if (collected_events.size() == 0) {
-      continue;
-    }
-
-    auto events = msg.initEvent().initSensorEvents(collected_events.size());
-    for (int i = 0; i < collected_events.size(); ++i) {
-      events.adoptWithCaveats(i, kj::mv(collected_events[i]));
-    }
-
-    {
-      std::lock_guard<std::mutex> lock(pm_mutex);
-      pm.send("sensorEvents", msg);
+      {
+        sensor_event.setTimestamp(ts);
+        send_message(pm, msg, sensor_event.getType());
+      }
     }
   }
 
@@ -168,7 +183,7 @@ int sensor_loop() {
     return -1;
   }
 
-  PubMaster pm({"sensorEvents"});
+  PubMaster pm({PM_GYRO, PM_ACCEL, PM_TEMP, PM_LIGHT, PM_MAGN});
 
   // thread for reading events via interrupts
   std::vector<Sensor *> lsm_interrupt_sensors = {&lsm6ds3_accel, &lsm6ds3_gyro};
@@ -178,18 +193,11 @@ int sensor_loop() {
   while (!do_exit) {
     std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
-    const int num_events = sensors.size();
-    MessageBuilder msg;
-    auto sensor_events = msg.initEvent().initSensorEvents(num_events);
-
-    for (int i = 0; i < num_events; i++) {
-      auto event = sensor_events[i];
-      sensors[i]->get_event(event);
-    }
-
-    {
-      std::lock_guard<std::mutex> lock(pm_mutex);
-      pm.send("sensorEvents", msg);
+    for (int i = 0; i < sensors.size(); i++) {
+      MessageBuilder msg;
+      auto sensor_event = msg.initEvent().initSensorEvent();
+      sensors[i]->get_event(sensor_event);
+      send_message(pm, msg, sensor_event.getType());
     }
 
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
