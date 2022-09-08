@@ -80,21 +80,9 @@ ALL_SENSORS = {
   }
 }
 
-<<<<<<< HEAD
 SENSOR_BUS = 1
 I2C_ADDR_LSM = 0x6A
 LSM_INT_GPIO = 84
-
-def read_sensor_events(duration_sec):
-  sensor_events = messaging.sub_sock("sensorEvents", timeout=0.1)
-  start_time_sec = time.monotonic()
-  events = []
-  while time.monotonic() - start_time_sec < duration_sec:
-    events += messaging.drain_sock(sensor_events)
-    time.sleep(0.01)
-
-  assert len(events) != 0, "No sensor events collected"
-  return events
 
 def get_proc_interrupts(int_pin):
 
