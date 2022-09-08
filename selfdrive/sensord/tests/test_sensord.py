@@ -80,6 +80,7 @@ ALL_SENSORS = {
   }
 }
 
+<<<<<<< HEAD
 SENSOR_BUS = 1
 I2C_ADDR_LSM = 0x6A
 LSM_INT_GPIO = 84
@@ -106,6 +107,24 @@ def get_proc_interrupts(int_pin):
 
   return ""
 
+def read_sensor_events(sensor_types, duration_sec):
+
+  esocks = {}
+  events = {}
+  for stype in sensor_types:
+    esocks[stype] = messaging.sub_sock(stype, timeout=0.1)
+    events[stype] = []
+
+  start_time_sec = time.monotonic()
+  while time.monotonic() - start_time_sec < duration_sec:
+    for esock in esocks:
+      events[esock] += messaging.drain_sock(esocks[esock])
+    time.sleep(0.01)
+
+  for etype in events:
+    assert len(events[etype]) != 0, f"No {etype} events collected"
+
+  return events
 
 class TestSensord(unittest.TestCase):
   @classmethod
@@ -116,33 +135,26 @@ class TestSensord(unittest.TestCase):
   @with_processes(['sensord'])
   def test_sensors_present(self):
     # verify correct sensors configuration
-    events = read_sensor_events(10)
+    events = read_sensor_events(['accelerometer', 'gyroscope', 'magnetometer',
+                                 'lightSensor', 'temperatureSensor'], 10)
 
     seen = set()
-    for event in events:
-      for measurement in event.sensorEvents:
-        # filter unset events (bmx magn)
-        if measurement.version == 0:
-          continue
-        seen.add((str(measurement.source), measurement.which()))
+    for etype in events:
+      for measurement in events[etype]:
+        seen.add((str(measurement.sensorEvent.source), measurement.sensorEvent.which()))
 
     self.assertIn(seen, SENSOR_CONFIGURATIONS)
 
   @with_processes(['sensord'])
   def test_lsm6ds3_100Hz(self):
     # verify measurements are sampled and published at a 100Hz rate
-    events = read_sensor_events(3) # 3sec (about 300 measurements)
+    events = read_sensor_events(['accelerometer', 'gyroscope'], 3)
 
     data_points = set()
-    for event in events:
-      for measurement in event.sensorEvents:
-
-        # skip lsm6ds3 temperature measurements
-        if measurement.which() == 'temperature':
-          continue
-
-        if str(measurement.source).startswith("lsm6ds3"):
-          data_points.add(measurement.timestamp)
+    for etype in events:
+      for measurement in events[etype]:
+        if str(measurement.sensorEvent.source).startswith("lsm6ds3"):
+          data_points.add(measurement.sensorEvent.timestamp)
 
     assert len(data_points) != 0, "No lsm6ds3 sensor events"
 
@@ -162,20 +174,17 @@ class TestSensord(unittest.TestCase):
   @with_processes(['sensord'])
   def test_events_check(self):
     # verify if all sensors produce events
-    events = read_sensor_events(3)
+    events = read_sensor_events(['accelerometer', 'gyroscope', 'magnetometer',
+                                 'lightSensor', 'temperatureSensor'], 3)
 
     sensor_events = dict()
-    for event in events:
-      for measurement in event.sensorEvents:
+    for etype in events:
+      for measurement in events[etype]:
 
-        # filter unset events (bmx magn)
-        if measurement.version == 0:
-          continue
-
-        if measurement.type in sensor_events:
-          sensor_events[measurement.type] += 1
+        if measurement.sensorEvent.type in sensor_events:
+          sensor_events[measurement.sensorEvent.type] += 1
         else:
-          sensor_events[measurement.type] = 1
+          sensor_events[measurement.sensorEvent.type] = 1
 
     for s in sensor_events:
       err_msg = f"Sensor {s}: 200 < {sensor_events[s]} < 400 events"
@@ -184,19 +193,17 @@ class TestSensord(unittest.TestCase):
   @with_processes(['sensord'])
   def test_logmonottime_timestamp_diff(self):
     # ensure diff between the message logMonotime and sample timestamp is small
-    events = read_sensor_events(3)
+    events = read_sensor_events(['accelerometer', 'gyroscope', 'magnetometer',
+                                 'lightSensor', 'temperatureSensor'], 3)
 
     tdiffs = list()
-    for event in events:
-      for measurement in event.sensorEvents:
-
-        # filter unset events (bmx magn)
-        if measurement.version == 0:
-          continue
+    for etype in events:
+      for measurement in events[etype]:
 
         # negative values might occur, as non interrupt packages created
-        tdiffs.append(abs(event.logMonoTime - measurement.timestamp))
         # before the sensor is read
+        diff = abs(measurement.logMonoTime - measurement.sensorEvent.timestamp)
+        tdiffs.append(diff)
 
     high_delay_diffs = set(filter(lambda d: d >= 10*10**6, tdiffs))
     assert len(high_delay_diffs) < 15, f"Too many high delay packages: {high_delay_diffs}"
@@ -210,18 +217,15 @@ class TestSensord(unittest.TestCase):
   @with_processes(['sensord'])
   def test_sensor_values_sanity_check(self):
 
-    events = read_sensor_events(2)
+    events = read_sensor_events(['accelerometer', 'gyroscope', 'magnetometer',
+                                 'lightSensor', 'temperatureSensor'], 2)
 
     sensor_values = dict()
-    for event in events:
-      for m in event.sensorEvents:
+    for etype in events:
+      for m in events[etype]:
+        key = (m.sensorEvent.source.raw, m.sensorEvent.which())
+        values = getattr(m.sensorEvent, m.sensorEvent.which())
 
-        # filter unset events (bmx magn)
-        if m.version == 0:
-          continue
-
-        key = (m.source.raw, m.which())
-        values = getattr(m, m.which())
         if hasattr(values, 'v'):
           values = values.v
         values = np.atleast_1d(values)
