@@ -196,8 +196,9 @@ int sensor_loop() {
     for (int i = 0; i < sensors.size(); i++) {
       MessageBuilder msg;
       auto sensor_event = msg.initEvent().initSensorEvent();
-      sensors[i]->get_event(sensor_event);
-      send_message(pm, msg, sensor_event.getType());
+      if (sensors[i]->get_event(sensor_event)) {
+        send_message(pm, msg, sensor_event.getType());
+      }
     }
 
     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
