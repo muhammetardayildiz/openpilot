@@ -307,17 +307,14 @@ def fetch_update(wait_helper: WaitTimeHelper) -> bool:
 
   setup_git_options(OVERLAY_MERGED)
 
-  git_fetch_output = run(["git", "fetch"], OVERLAY_MERGED, low_priority=True)
+  branch = Params().get("UpdaterTargetBranch")
+  git_fetch_output = run(["git", "fetch", "origin", branch], OVERLAY_MERGED, low_priority=True)
   cloudlog.info("git fetch success: %s", git_fetch_output)
 
   cur_hash = run(["git", "rev-parse", "HEAD"], OVERLAY_MERGED).rstrip()
   upstream_hash = run(["git", "rev-parse", "@{u}"], OVERLAY_MERGED).rstrip()
   new_version: bool = cur_hash != upstream_hash
   git_fetch_result = check_git_fetch_result(git_fetch_output)
-
-  new_branch = Params().get("SwitchToBranch", encoding='utf8')
-  if new_branch is not None:
-    new_version = True
 
   cloudlog.info(f"comparing {cur_hash} to {upstream_hash}")
   if new_version or git_fetch_result:
@@ -331,9 +328,6 @@ def fetch_update(wait_helper: WaitTimeHelper) -> bool:
         ["git", "submodule", "init"],
         ["git", "submodule", "update"],
       ]
-      if new_branch is not None:
-        cloudlog.info(f"switching to branch {repr(new_branch)}")
-        cmds.insert(0, ["git", "checkout", "-f", new_branch])
       r = [run(cmd, OVERLAY_MERGED, low_priority=True) for cmd in cmds]
       cloudlog.info("git reset success: %s", '\n'.join(r))
 
@@ -395,10 +389,10 @@ def main() -> None:
   update_failed_count = 0  # TODO: Load from param?
   wait_helper = WaitTimeHelper(proc)
 
-  init_overlay()
-  get_remote_branches()
-  print("all done")
-  exit(0)
+  #init_overlay()
+  #get_remote_branches()
+  #print("all done")
+  #exit(0)
 
   # Run the update loop
   while not wait_helper.shutdown:
@@ -416,6 +410,13 @@ def main() -> None:
       internet_ok, update_available = check_for_update()
       if internet_ok and not update_available:
         update_failed_count = 0
+
+      if internet_ok:
+        cloudlog.warning("getting remote branches")
+        try:
+          get_remote_branches()
+        except Exception:
+          cloudlog.exception("get remote branches failed")
 
       # Fetch update
       if internet_ok:
