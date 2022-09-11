@@ -59,9 +59,11 @@ class WaitTimeHelper:
     self.proc = proc
     self.ready_event = threading.Event()
     self.shutdown = False
+    self.fetch_update = False
     signal.signal(signal.SIGTERM, self.graceful_shutdown)
     signal.signal(signal.SIGINT, self.graceful_shutdown)
     signal.signal(signal.SIGHUP, self.update_now)
+    signal.signal(signal.SIGUSR1, self.fetch_now)
 
   def graceful_shutdown(self, signum: int, frame) -> None:
     # umount -f doesn't appear effective in avoiding "device busy" on NEOS,
@@ -79,6 +81,11 @@ class WaitTimeHelper:
   def update_now(self, signum: int, frame) -> None:
     cloudlog.info("caught SIGHUP, running update check immediately")
     self.ready_event.set()
+
+  def fetch_now(self, signum: int, frame) -> None:
+    cloudlog.info("caught SIGUSR1, fetching update")
+    self.ready_event.set()
+    self.fetch_update = True
 
   def sleep(self, t: float) -> None:
     self.ready_event.wait(timeout=t)
@@ -288,16 +295,12 @@ def handle_agnos_update(wait_helper: WaitTimeHelper) -> None:
   set_offroad_alert("Offroad_NeosUpdate", False)
 
 
-def check_git_fetch_result(fetch_txt: str) -> bool:
-  err_msg = "Failed to add the host to the list of known hosts (/data/data/com.termux/files/home/.ssh/known_hosts).\n"
-  return len(fetch_txt) > 0 and (fetch_txt != err_msg)
-
-
 def check_for_update() -> Tuple[bool, bool]:
   setup_git_options(OVERLAY_MERGED)
+  branch = Params().get("UpdaterTargetBranch", encoding='utf-8')
   try:
-    git_fetch_output = run(["git", "fetch", "--dry-run"], OVERLAY_MERGED, low_priority=True)
-    return True, check_git_fetch_result(git_fetch_output)
+    git_fetch_output = run(["git", "fetch", "--dry-run", "origin", branch], OVERLAY_MERGED, low_priority=True)
+    return True, len(git_fetch_output) > 0
   except subprocess.CalledProcessError:
     return False, False
 
@@ -305,55 +308,65 @@ def check_for_update() -> Tuple[bool, bool]:
 def fetch_update(wait_helper: WaitTimeHelper) -> bool:
   cloudlog.info("attempting git fetch inside staging overlay")
 
+  params = Params()
+  params.put("UpdaterState", "fetching")
+
+  # TODO: cleanly interrupt this and invalid old 
+  set_consistent_flag(False)
+  params.put_bool("UpdateAvailable", False)
+
   setup_git_options(OVERLAY_MERGED)
 
-  branch = Params().get("UpdaterTargetBranch")
+  branch = Params().get("UpdaterTargetBranch", encoding='utf-8')
   git_fetch_output = run(["git", "fetch", "origin", branch], OVERLAY_MERGED, low_priority=True)
   cloudlog.info("git fetch success: %s", git_fetch_output)
 
-  cur_hash = run(["git", "rev-parse", "HEAD"], OVERLAY_MERGED).rstrip()
-  upstream_hash = run(["git", "rev-parse", "@{u}"], OVERLAY_MERGED).rstrip()
-  new_version: bool = cur_hash != upstream_hash
-  git_fetch_result = check_git_fetch_result(git_fetch_output)
+  new_version = len(git_fetch_output) > 0
 
-  cloudlog.info(f"comparing {cur_hash} to {upstream_hash}")
-  if new_version or git_fetch_result:
+  if new_version:
     cloudlog.info("Running update")
 
-    if new_version:
-      cloudlog.info("git reset in progress")
-      cmds = [
-        ["git", "reset", "--hard", "@{u}"],
-        ["git", "clean", "-xdf"],
-        ["git", "submodule", "init"],
-        ["git", "submodule", "update"],
-      ]
-      r = [run(cmd, OVERLAY_MERGED, low_priority=True) for cmd in cmds]
-      cloudlog.info("git reset success: %s", '\n'.join(r))
+    cloudlog.info("git reset in progress")
+    cmds = [
+      #["git", "switch", "--force", "--no-recurse-submodules", "--track", f"origin/{branch}"],
+      ["git", "checkout", "--force", "--no-recurse-submodules", branch],
+      ["git", "reset", "--hard", f"origin/{branch}"],
+      ["git", "clean", "-xdf"],
+      ["git", "submodule", "init"],
+      ["git", "submodule", "update"],
+    ]
+    r = [run(cmd, OVERLAY_MERGED, low_priority=True) for cmd in cmds]
+    cloudlog.info("git reset success: %s", '\n'.join(r))
 
-      if AGNOS:
-        handle_agnos_update(wait_helper)
+    if AGNOS:
+      handle_agnos_update(wait_helper)
+
+    new_hash = run(["git", "rev-parse", "HEAD"], OVERLAY_MERGED).rstrip()
+    params.put("UpdaterNewDescription", f"{branch} ({new_hash[:7]})")
 
     # Create the finalized, ready-to-swap update
+    params.put("UpdaterState", "copying")
     finalize_update(wait_helper)
     cloudlog.info("openpilot update successful!")
   else:
     cloudlog.info("nothing new from git at this time")
+
 
   return new_version
 
 
 def get_remote_branches():
   setup_git_options(OVERLAY_MERGED)
+
+  excluded_branches = ('release2', 'release2-staging', 'dashcam', 'dashcam-staging')
+
   output = run(["git", "ls-remote", "--heads"], OVERLAY_MERGED, low_priority=True)
   branches = {}
   for line in output.split('\n'):
-    rep = r'(?P<commit_sha>\b[0-9a-f]{5,40}\b)(\s+)(refs\/heads\/)(?P<branch_name>.*$)'
-    x = re.fullmatch(rep, line.strip())
-    if x is None:
-      continue
-    branches[x.group('branch_name')] = x.group('commit_sha')
-
+    ls_remotes_re = r'(?P<commit_sha>\b[0-9a-f]{5,40}\b)(\s+)(refs\/heads\/)(?P<branch_name>.*$)'
+    x = re.fullmatch(ls_remotes_re, line.strip())
+    if x is not None and x.group('branch_name') not in excluded_branches:
+      branches[x.group('branch_name')] = x.group('commit_sha')
   Params().put("UpdaterAvailableBranches", ','.join(branches.keys()))
 
 
@@ -389,11 +402,6 @@ def main() -> None:
   update_failed_count = 0  # TODO: Load from param?
   wait_helper = WaitTimeHelper(proc)
 
-  #init_overlay()
-  #get_remote_branches()
-  #print("all done")
-  #exit(0)
-
   # Run the update loop
   while not wait_helper.shutdown:
     wait_helper.ready_event.clear()
@@ -407,9 +415,12 @@ def main() -> None:
 
       # TODO: still needed? skip this and just fetch?
       # Lightweight internt check
+      params.put("UpdaterState", "checking")
       internet_ok, update_available = check_for_update()
       if internet_ok and not update_available:
         update_failed_count = 0
+
+      params.put_bool("UpdaterFetchAvailable", update_available)
 
       if internet_ok:
         cloudlog.warning("getting remote branches")
@@ -419,7 +430,8 @@ def main() -> None:
           cloudlog.exception("get remote branches failed")
 
       # Fetch update
-      if internet_ok:
+      if wait_helper.fetch_update and update_available:
+        wait_helper.fetch_update = False
         new_version = fetch_update(wait_helper)
         update_failed_count = 0
     except subprocess.CalledProcessError as e:
@@ -442,6 +454,7 @@ def main() -> None:
       except Exception:
         cloudlog.exception("uncaught updated exception while setting params, shouldn't happen")
 
+    params.put("UpdaterState", "idle")
     # infrequent attempts if we successfully updated recently
     wait_helper.sleep(5*60 if update_failed_count > 0 else 90*60)
 

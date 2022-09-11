@@ -72,12 +72,9 @@ private:
   void showEvent(QShowEvent *event) override;
   void updateLabels();
 
-  LabelControl *gitBranchLbl;
-  LabelControl *gitCommitLbl;
-  LabelControl *osVersionLbl;
-  LabelControl *versionLbl;
-  LabelControl *lastUpdateLbl;
-  ButtonControl *updateBtn;
+  ButtonControl *versionLbl;
+  ButtonControl *installBtn;
+  ButtonControl *downloadBtn;
   ButtonControl *branchSwitcherBtn;
 
   Params params;
