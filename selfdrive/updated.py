@@ -366,7 +366,7 @@ class Updater:
         handle_agnos_update(wait_helper)
 
       new_hash = run(["git", "rev-parse", "HEAD"], OVERLAY_MERGED).rstrip()
-      params.put("UpdaterNewDescription", f"{branch} ({new_hash[:7]})")
+      params.put("UpdaterNewDescription", f"0.8.17 / {branch} / {new_hash[:7]}")
 
       # Create the finalized, ready-to-swap update
       params.put("UpdaterState", "copying")
@@ -430,8 +430,6 @@ def main() -> None:
       internet_ok, update_available = updater.check_for_update()
       if internet_ok and not update_available:
         update_failed_count = 0
-
-      print("update available", update_available)
 
       # Fetch update
       if wait_helper.fetch_update and update_available:

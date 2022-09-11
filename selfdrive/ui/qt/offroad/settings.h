@@ -72,6 +72,9 @@ private:
   void showEvent(QShowEvent *event) override;
   void updateLabels();
 
+  bool is_onroad = false;
+
+  QLabel *onroadLbl;
   ButtonControl *versionLbl;
   ButtonControl *installBtn;
   ButtonControl *downloadBtn;

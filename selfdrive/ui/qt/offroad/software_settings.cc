@@ -5,6 +5,7 @@
 #include <string>
 
 #include <QDebug>
+#include <QLabel>
 
 #include "common/params.h"
 #include "common/util.h"
@@ -15,7 +16,6 @@
 #include "selfdrive/ui/qt/widgets/toggle.h"
 #include "selfdrive/ui/ui.h"
 #include "selfdrive/ui/qt/util.h"
-#include "selfdrive/ui/qt/qt_window.h"
 #include "selfdrive/ui/qt/widgets/input.h"
 
 
@@ -23,11 +23,15 @@ void checkForUpdates() {
   std::system("pkill -SIGHUP -f selfdrive.updated");
 }
 
-
 SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
-  versionLbl = new ButtonControl(tr("Current Version"), tr("VIEW"), QString::fromStdString(params.get("ReleaseNotes")).trimmed());
+  // TODO: make the onroad experience nice
+  onroadLbl = new QLabel("Updates are only downloaded while the car is off.");
+  onroadLbl->setStyleSheet("font-size: 50px; font-weight: 400; text-align: left;");
+  addItem(onroadLbl);
 
-  // TODO: define the onroad experience.
+  // current version
+  versionLbl = new ButtonControl(tr("Current Version"), tr("VIEW"), QString::fromStdString(params.get("ReleaseNotes")).trimmed());
+  addItem(versionLbl);
 
   // download update btn
   downloadBtn = new ButtonControl(tr("Download"), "DOWNLOAD");
@@ -35,14 +39,17 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
     downloadBtn->setEnabled(false);
     std::system("pkill -SIGUSR1 -f selfdrive.updated");
   });
+  addItem(downloadBtn);
 
   // install update btn
   installBtn = new ButtonControl(tr("Install Update"), "INSTALL");
   connect(installBtn, &ButtonControl::clicked, [=]() {
+    installBtn->setEnabled(false);
     Hardware::reboot();
   });
-  installBtn->setVisible(false);
+  addItem(installBtn);
 
+  // TODO: hide this on release
   // branch selecting
   branchSwitcherBtn = new ButtonControl(tr("Target Branch"), tr("CHANGE"), tr("The target branch will be pulled the next time the updater runs."));
   connect(branchSwitcherBtn, &ButtonControl::clicked, [=]() {
@@ -55,6 +62,7 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
     }
     checkForUpdates();
   });
+  addItem(branchSwitcherBtn);
 
   // uninstall button
   auto uninstallBtn = new ButtonControl(tr("Uninstall %1").arg(getBrand()), tr("UNINSTALL"));
@@ -63,23 +71,23 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
       params.putBool("DoUninstall", true);
     }
   });
-  connect(uiState(), &UIState::offroadTransition, uninstallBtn, &QPushButton::setEnabled);
-
-  QWidget *widgets[] = {versionLbl, downloadBtn, installBtn, branchSwitcherBtn, uninstallBtn};
-  for (QWidget* w : widgets) {
-    if (w == branchSwitcherBtn && params.getBool("IsTestedBranch")) {
-      continue;
-    }
-    addItem(w);
-  }
+  addItem(uninstallBtn);
 
   fs_watch = new QFileSystemWatcher(this);
   QObject::connect(fs_watch, &QFileSystemWatcher::fileChanged, [=](const QString path) {
     updateLabels();
   });
+
+  connect(uiState(), &UIState::offroadTransition, [=](bool onroad) {
+    is_onroad = onroad;
+    updateLabels();
+  });
+
+  updateLabels();
 }
 
 void SoftwarePanel::showEvent(QShowEvent *event) {
+  checkForUpdates();
   updateLabels();
 }
 
@@ -90,6 +98,12 @@ void SoftwarePanel::updateLabels() {
   fs_watch->addPath(QString::fromStdString(params.getParamPath("UpdaterState")));
   fs_watch->addPath(QString::fromStdString(params.getParamPath("UpdateAvailable")));
 
+
+  // updater only runs offroad
+  onroadLbl->setVisible(is_onroad);
+  installBtn->setVisible(!is_onroad);
+  downloadBtn->setVisible(!is_onroad);
+
   QString lastUpdate = "never";
   auto tm = params.get("LastUpdateTime");
   if (!tm.empty()) {
@@ -99,7 +113,9 @@ void SoftwarePanel::updateLabels() {
 
   branchSwitcherBtn->setValue(QString::fromStdString(params.get("UpdaterTargetBranch")));
 
-  versionLbl->setValue(getBrandVersion());
+  auto branch = QString::fromStdString(params.get("GitBranch"));
+  auto commit = QString::fromStdString(params.get("GitCommit")).left(7);
+  versionLbl->setValue(QString("0.8.17") + " / " + branch + " / " + commit);
 
   // download update
   QString updater_state = QString::fromStdString(params.get("UpdaterState"));
@@ -112,7 +128,7 @@ void SoftwarePanel::updateLabels() {
     if (params.getBool("UpdaterFetchAvailable")) {
       downloadBtn->setText("DOWNLOAD");
       //downloadBtn->setValue("master (f6398ea) -> master (29f9c53)");
-      downloadBtn->setValue("update available");
+      downloadBtn->setValue("doing stuff...");
     } else {
       downloadBtn->setText("CHECK");
       downloadBtn->setValue("up to date (" + lastUpdate + ")");
@@ -126,8 +142,6 @@ void SoftwarePanel::updateLabels() {
   update();
 
   /*
-  gitBranchLbl->setText(QString::fromStdString(params.get("GitBranch")));
-  gitCommitLbl->setText(QString::fromStdString(params.get("GitCommit")).left(10));
   osVersionLbl->setText(QString::fromStdString(Hardware::get_os_version()).trimmed());
   */
 }
