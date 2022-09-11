@@ -45,6 +45,10 @@ public:
     title_label->setText(title);
   }
 
+  void setValue(const QString &val) {
+    value->setText(val);
+  }
+
 signals:
   void showDescription();
 
@@ -54,6 +58,9 @@ protected:
 
   QHBoxLayout *hlayout;
   QPushButton *title_label;
+
+private:
+  QLabel *value;
   QLabel *description = nullptr;
 };
 

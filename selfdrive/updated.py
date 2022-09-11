@@ -23,6 +23,7 @@
 # disable this service.
 
 import os
+import re
 import datetime
 import subprocess
 import psutil
@@ -348,6 +349,20 @@ def fetch_update(wait_helper: WaitTimeHelper) -> bool:
   return new_version
 
 
+def get_remote_branches():
+  setup_git_options(OVERLAY_MERGED)
+  output = run(["git", "ls-remote", "--heads"], OVERLAY_MERGED, low_priority=True)
+  branches = {}
+  for line in output.split('\n'):
+    rep = r'(?P<commit_sha>\b[0-9a-f]{5,40}\b)(\s+)(refs\/heads\/)(?P<branch_name>.*$)'
+    x = re.fullmatch(rep, line.strip())
+    if x is None:
+      continue
+    branches[x.group('branch_name')] = x.group('commit_sha')
+
+  Params().put("UpdaterAvailableBranches", ','.join(branches.keys()))
+
+
 def main() -> None:
   params = Params()
 
@@ -379,6 +394,11 @@ def main() -> None:
 
   update_failed_count = 0  # TODO: Load from param?
   wait_helper = WaitTimeHelper(proc)
+
+  init_overlay()
+  get_remote_branches()
+  print("all done")
+  exit(0)
 
   # Run the update loop
   while not wait_helper.shutdown:

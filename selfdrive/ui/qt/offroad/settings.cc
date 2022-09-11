@@ -301,19 +301,22 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
   });
   connect(uiState(), &UIState::offroadTransition, updateBtn, &QPushButton::setEnabled);
 
-  branchSwitcherBtn = new ButtonControl(tr("Switch Branch"), tr("ENTER"), tr("The new branch will be pulled the next time the updater runs."));
+
+  // branch selecting
+  branchSwitcherBtn = new ButtonControl(tr("Target Branch"), tr("ENTER"), tr("The new branch will be pulled the next time the updater runs."));
+  branchSwitcherBtn->setValue(QString::fromStdString(params.get("UpdaterTargetBranch")));
   connect(branchSwitcherBtn, &ButtonControl::clicked, [=]() {
-    QString branch = InputDialog::getText(tr("Enter branch name"), this, tr("The new branch will be pulled the next time the updater runs."),
-                                          false, -1, QString::fromStdString(params.get("SwitchToBranch")));
-    if (branch.isEmpty()) {
-      params.remove("SwitchToBranch");
-    } else {
-      params.put("SwitchToBranch", branch.toStdString());
+    QStringList branches = QString::fromStdString(params.get("UpdaterAvailableBranches")).split(",");
+    QString currentVal = QString::fromStdString(params.get("UpdaterTargetBranch"));
+    QString selection = MultiOptionDialog::getSelection(tr("Select a branch"), branches, currentVal, this);
+    if (!selection.isEmpty()) {
+      params.put("UpdaterTargetBranch", selection.toStdString());
+      branchSwitcherBtn->setValue(QString::fromStdString(params.get("UpdaterTargetBranch")));
     }
     std::system("pkill -1 -f selfdrive.updated");
   });
-  connect(uiState(), &UIState::offroadTransition, branchSwitcherBtn, &QPushButton::setEnabled);
 
+  // uninstall button
   auto uninstallBtn = new ButtonControl(tr("Uninstall %1").arg(getBrand()), tr("UNINSTALL"));
   connect(uninstallBtn, &ButtonControl::clicked, [&]() {
     if (ConfirmationDialog::confirm(tr("Are you sure you want to uninstall?"), this)) {
