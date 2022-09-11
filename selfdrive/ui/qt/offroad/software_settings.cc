@@ -120,8 +120,8 @@ void SoftwarePanel::updateLabels() {
     downloadBtn->setEnabled(true);
   }
 
-  installBtn->setValue(QString::fromStdString(params.get("UpdaterNewDescription")));
   installBtn->setVisible(params.getBool("UpdateAvailable"));
+  installBtn->setValue(QString::fromStdString(params.get("UpdaterNewDescription")));
 
   update();
 
