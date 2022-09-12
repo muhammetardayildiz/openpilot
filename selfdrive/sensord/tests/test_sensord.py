@@ -96,7 +96,6 @@ def get_proc_interrupts(int_pin):
   return ""
 
 def read_sensor_events(sensor_types, duration_sec):
-
   esocks = {}
   events = {}
   for stype in sensor_types:
@@ -129,7 +128,8 @@ class TestSensord(unittest.TestCase):
     seen = set()
     for etype in events:
       for measurement in events[etype]:
-        seen.add((str(measurement.sensorEvent.source), measurement.sensorEvent.which()))
+        m = getattr(measurement, measurement.which())
+        seen.add((str(m.source), m.which()))
 
     self.assertIn(seen, SENSOR_CONFIGURATIONS)
 
@@ -141,8 +141,9 @@ class TestSensord(unittest.TestCase):
     data_points = set()
     for etype in events:
       for measurement in events[etype]:
-        if str(measurement.sensorEvent.source).startswith("lsm6ds3"):
-          data_points.add(measurement.sensorEvent.timestamp)
+        m = getattr(measurement, measurement.which())
+        if str(m.source).startswith("lsm6ds3"):
+          data_points.add(m.timestamp)
 
     assert len(data_points) != 0, "No lsm6ds3 sensor events"
 
@@ -168,11 +169,11 @@ class TestSensord(unittest.TestCase):
     sensor_events = dict()
     for etype in events:
       for measurement in events[etype]:
-
-        if measurement.sensorEvent.type in sensor_events:
-          sensor_events[measurement.sensorEvent.type] += 1
+        m = getattr(measurement, measurement.which())
+        if m.type in sensor_events:
+          sensor_events[m.type] += 1
         else:
-          sensor_events[measurement.sensorEvent.type] = 1
+          sensor_events[m.type] = 1
 
     for s in sensor_events:
       err_msg = f"Sensor {s}: 200 < {sensor_events[s]} < 400 events"
@@ -186,11 +187,11 @@ class TestSensord(unittest.TestCase):
 
     tdiffs = list()
     for etype in events:
-      for measurement in events[etype]:
+      for m in events[etype]:
 
         # negative values might occur, as non interrupt packages created
         # before the sensor is read
-        diff = abs(measurement.logMonoTime - measurement.sensorEvent.timestamp)
+        diff = abs(m.logMonoTime - getattr(m, m.which()).timestamp)
         tdiffs.append(diff)
 
     high_delay_diffs = set(filter(lambda d: d >= 10*10**6, tdiffs))
@@ -211,8 +212,9 @@ class TestSensord(unittest.TestCase):
     sensor_values = dict()
     for etype in events:
       for m in events[etype]:
-        key = (m.sensorEvent.source.raw, m.sensorEvent.which())
-        values = getattr(m.sensorEvent, m.sensorEvent.which())
+        event = getattr(m, m.which())
+        key = (event.source.raw, event.which())
+        values = getattr(event, event.which())
 
         if hasattr(values, 'v'):
           values = values.v
