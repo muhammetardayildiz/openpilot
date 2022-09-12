@@ -60,7 +60,7 @@ AbstractControl::AbstractControl(const QString &title, const QString &desc, cons
 
   connect(title_label, &QPushButton::clicked, [=]() {
     if (!description->isVisible()) {
-      emit showDescription();
+      emit showDescriptionEvent();
     }
 
     if (!description->text().isEmpty()) {

@@ -106,6 +106,17 @@ def set_consistent_flag(consistent: bool) -> None:
     consistent_file.unlink(missing_ok=True)
   os.sync()
 
+def parse_release_notes(basedir: str) -> bytes:
+  try:
+    with open(os.path.join(basedir, "RELEASES.md"), "rb") as f:
+      r = f.read().split(b'\n\n', 1)[0]  # Slice latest release notes
+    try:
+      return MarkdownIt().render(r.decode("utf-8"))
+    except Exception:
+      return r + b"\n"
+  except Exception:
+    pass
+  return b""
 
 def set_params(new_version: bool, failed_count: int, exception: Optional[str]) -> None:
   params = Params()
@@ -129,16 +140,9 @@ def set_params(new_version: bool, failed_count: int, exception: Optional[str]) -
     params.put("LastUpdateException", exception)
 
   # Write out release notes for new versions
+  params.put("UpdaterCurrentReleaseNotes", parse_release_notes(BASEDIR))
+  params.put("UpdaterNewReleaseNotes", parse_release_notes(FINALIZED))
   if new_version:
-    try:
-      with open(os.path.join(FINALIZED, "RELEASES.md"), "rb") as f:
-        r = f.read().split(b'\n\n', 1)[0]  # Slice latest release notes
-      try:
-        params.put("ReleaseNotes", MarkdownIt().render(r.decode("utf-8")))
-      except Exception:
-        params.put("ReleaseNotes", r + b"\n")
-    except Exception:
-      params.put("ReleaseNotes", "")
     params.put_bool("UpdateAvailable", True)
 
   # Handle user prompt
@@ -309,11 +313,13 @@ class Updater:
   def target_branch(self) -> str:
     b = self.params.get("UpdaterTargetBranch", encoding='utf-8')
     if b is None:
-      b = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], OVERLAY_MERGED, low_priority=True)
-      self.params.put("UpdaterTargetBranch", b)
+      self.params.put("UpdaterTargetBranch", self.get_branch())
     return b
 
-  def check_for_update(self) -> Tuple[bool, bool]:
+  def get_branch(self, path: str = OVERLAY_MERGED) -> str:
+    return run(["git", "rev-parse", "--abbrev-ref", "HEAD"], OVERLAY_MERGED, low_priority=True).rstrip()
+
+  def check_for_update(self) -> bool:
     setup_git_options(OVERLAY_MERGED)
 
     excluded_branches = ('release2', 'release2-staging', 'dashcam', 'dashcam-staging')
@@ -328,15 +334,15 @@ class Updater:
         self._branches[x.group('branch_name')] = x.group('commit_sha')
     self.params.put("UpdaterAvailableBranches", ','.join(self._branches.keys()))
 
-    # TODO: update also available if overlay branch != target branch, this can happen if overlay and target are on the same commit
     cur_hash = run(["git", "rev-parse", "HEAD"], OVERLAY_MERGED).rstrip()
-    return True, cur_hash != self._branches[self.target_branch]
-
+    hash_mismatch = cur_hash != self._branches[self.target_branch]
+    branch_mismatch = self.get_branch() != self.target_branch
+    return hash_mismatch or branch_mismatch
 
   def fetch_update(self, wait_helper: WaitTimeHelper) -> bool:
     cloudlog.info("attempting git fetch inside staging overlay")
 
-    self.params.put("UpdaterState", "downloading")
+    self.params.put("UpdaterState", "downloading...")
 
     # TODO: cleanly interrupt this and invalid old
     set_consistent_flag(False)
@@ -371,12 +377,11 @@ class Updater:
       self.params.put("UpdaterNewDescription", f"0.8.17 / {branch} / {new_hash[:7]}")
 
       # Create the finalized, ready-to-swap update
-      self.params.put("UpdaterState", "copying")
+      self.params.put("UpdaterState", "finalizing update...")
       finalize_update(wait_helper)
       cloudlog.info("openpilot update successful!")
     else:
       cloudlog.info("nothing new from git at this time")
-
 
     return new_version
 
@@ -428,7 +433,7 @@ def main() -> None:
 
       # TODO: still needed? skip this and just fetch?
       # Lightweight internt check
-      params.put("UpdaterState", "checking")
+      params.put("UpdaterState", "checking...")
       update_available = updater.check_for_update()
 
       # Fetch update

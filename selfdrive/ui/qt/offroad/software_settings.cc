@@ -30,6 +30,7 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
 
   // current version
   versionLbl = new ButtonControl(tr("Current Version"), tr("VIEW"));
+  connect(versionLbl, &ButtonControl::clicked, versionLbl, &ButtonControl::showDescription);
   addItem(versionLbl);
 
   // download update btn
@@ -139,10 +140,12 @@ void SoftwarePanel::updateLabels() {
   auto branch = QString::fromStdString(params.get("GitBranch"));
   auto commit = QString::fromStdString(params.get("GitCommit")).left(7);
   versionLbl->setValue(QString(QString("0.8.17") + " / " + branch + " / " + commit).left(35));
+  versionLbl->setDescription(QString::fromStdString(params.get("UpdaterCurrentReleaseNotes")));
 
   installBtn->setVisible(!is_onroad && params.getBool("UpdateAvailable"));
   QString desc = QString::fromStdString(params.get("UpdaterNewDescription"));
   installBtn->setValue(desc.left(35));
+  installBtn->setDescription(QString::fromStdString(params.get("UpdaterNewReleaseNotes")));
 
   update();
 }

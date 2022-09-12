@@ -129,16 +129,6 @@ if __name__ == "__main__":
   params.put("TermsVersion", terms_version)
   params.put("TrainingVersion", training_version)
 
-  params.put("Version", get_version())
-  params.put("TermsVersion", terms_version)
-  params.put("TrainingVersion", training_version)
-  params.put("GitCommit", get_commit(default=""))
-  params.put("GitBranch", get_short_branch(default=""))
-  params.put("GitRemote", get_origin(default=""))
-  params.put_bool("IsTestedBranch", is_tested_branch())
-
-
-
   print(f"Dirty: {is_dirty()}")
   print(f"Version: {get_version()}")
   print(f"Short version: {get_short_version()}")

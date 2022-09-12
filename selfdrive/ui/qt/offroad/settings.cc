@@ -159,7 +159,7 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   addItem(dcamBtn);
 
   auto resetCalibBtn = new ButtonControl(tr("Reset Calibration"), tr("RESET"), "");
-  connect(resetCalibBtn, &ButtonControl::showDescription, this, &DevicePanel::updateCalibDescription);
+  connect(resetCalibBtn, &ButtonControl::showDescriptionEvent, this, &DevicePanel::updateCalibDescription);
   connect(resetCalibBtn, &ButtonControl::clicked, [&]() {
     if (ConfirmationDialog::confirm(tr("Are you sure you want to reset calibration?"), this)) {
       params.remove("CalibrationParams");

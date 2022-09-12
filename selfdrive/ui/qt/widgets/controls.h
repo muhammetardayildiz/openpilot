@@ -49,8 +49,13 @@ public:
     value->setText(val);
   }
 
+public slots:
+  void showDescription() {
+    description->setVisible(true);
+  };
+
 signals:
-  void showDescription();
+  void showDescriptionEvent();
 
 protected:
   AbstractControl(const QString &title, const QString &desc = "", const QString &icon = "", QWidget *parent = nullptr);
