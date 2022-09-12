@@ -9,14 +9,11 @@
 
 #include "common/params.h"
 #include "common/util.h"
-#include "system/hardware/hw.h"
-#include "selfdrive/ui/qt/widgets/controls.h"
-#include "selfdrive/ui/qt/widgets/input.h"
-#include "selfdrive/ui/qt/widgets/scrollview.h"
-#include "selfdrive/ui/qt/widgets/toggle.h"
 #include "selfdrive/ui/ui.h"
 #include "selfdrive/ui/qt/util.h"
+#include "selfdrive/ui/qt/widgets/controls.h"
 #include "selfdrive/ui/qt/widgets/input.h"
+#include "system/hardware/hw.h"
 
 
 void SoftwarePanel::checkForUpdates() {
@@ -37,7 +34,6 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
   downloadBtn = new ButtonControl(tr("Download"), "DOWNLOAD");
   connect(downloadBtn, &ButtonControl::clicked, [=]() {
     downloadBtn->setEnabled(false);
-
     if (downloadBtn->text() == "CHECK") {
       checkForUpdates();
     } else {
@@ -58,8 +54,16 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
   targetBranchBtn = new ButtonControl(tr("Target Branch"), tr("SELECT"));
   connect(targetBranchBtn, &ButtonControl::clicked, [=]() {
     QStringList branches = QString::fromStdString(params.get("UpdaterAvailableBranches")).split(",");
-    QString currentVal = QString::fromStdString(params.get("UpdaterTargetBranch"));
-    QString selection = MultiOptionDialog::getSelection(tr("Select a branch"), branches, currentVal, this);
+    for (QString b : {"devel-staging", "devel", "master-ci", "master"}) {
+      auto i = branches.indexOf(b);
+      if (i >= 0) {
+        branches.removeAt(i);
+        branches.insert(0, b);
+      }
+    }
+
+    QString cur = QString::fromStdString(params.get("UpdaterTargetBranch"));
+    QString selection = MultiOptionDialog::getSelection(tr("Select a branch"), branches, cur, this);
     if (!selection.isEmpty()) {
       params.put("UpdaterTargetBranch", selection.toStdString());
       targetBranchBtn->setValue(QString::fromStdString(params.get("UpdaterTargetBranch")));
@@ -106,6 +110,9 @@ void SoftwarePanel::updateLabels() {
   fs_watch->addPath(QString::fromStdString(params.getParamPath("UpdaterState")));
   fs_watch->addPath(QString::fromStdString(params.getParamPath("UpdateAvailable")));
 
+  if (!isVisible()) {
+    return;
+  }
 
   // updater only runs offroad
   onroadLbl->setVisible(is_onroad);
@@ -130,7 +137,7 @@ void SoftwarePanel::updateLabels() {
         lastUpdate = timeAgo(QDateTime::fromString(QString::fromStdString(tm + "Z"), Qt::ISODate));
       }
       downloadBtn->setText("CHECK");
-      downloadBtn->setValue("up to date (" + lastUpdate + ")");
+      downloadBtn->setValue("up to date, last checked " + lastUpdate);
     }
     downloadBtn->setEnabled(true);
   }
