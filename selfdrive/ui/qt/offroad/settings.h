@@ -71,6 +71,7 @@ public:
 private:
   void showEvent(QShowEvent *event) override;
   void updateLabels();
+  void checkForUpdates();
 
   bool is_onroad = false;
 
@@ -78,7 +79,7 @@ private:
   ButtonControl *versionLbl;
   ButtonControl *installBtn;
   ButtonControl *downloadBtn;
-  ButtonControl *branchSwitcherBtn;
+  ButtonControl *targetBranchBtn;
 
   Params params;
   QFileSystemWatcher *fs_watch;

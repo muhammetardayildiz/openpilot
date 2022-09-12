@@ -305,15 +305,20 @@ class Updater:
     self._remote = "origin"
     self._branches = {}
 
+  @property
+  def target_branch(self) -> str:
+    b = self.params.get("UpdaterTargetBranch", encoding='utf-8')
+    if b is None:
+      b = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], OVERLAY_MERGED, low_priority=True)
+      self.params.put("UpdaterTargetBranch", b)
+    return b
+
   def check_for_update(self) -> Tuple[bool, bool]:
     setup_git_options(OVERLAY_MERGED)
 
     excluded_branches = ('release2', 'release2-staging', 'dashcam', 'dashcam-staging')
 
-    try:
-      output = run(["git", "ls-remote", "--heads"], OVERLAY_MERGED, low_priority=True)
-    except subprocess.CalledProcessError:
-      return False, False
+    output = run(["git", "ls-remote", "--heads"], OVERLAY_MERGED, low_priority=True)
 
     self._branches = {}
     for line in output.split('\n'):
@@ -321,27 +326,25 @@ class Updater:
       x = re.fullmatch(ls_remotes_re, line.strip())
       if x is not None and x.group('branch_name') not in excluded_branches:
         self._branches[x.group('branch_name')] = x.group('commit_sha')
-    Params().put("UpdaterAvailableBranches", ','.join(self._branches.keys()))
+    self.params.put("UpdaterAvailableBranches", ','.join(self._branches.keys()))
 
     # TODO: update also available if overlay branch != target branch, this can happen if overlay and target are on the same commit
     cur_hash = run(["git", "rev-parse", "HEAD"], OVERLAY_MERGED).rstrip()
-    branch = Params().get("UpdaterTargetBranch", encoding='utf-8')
-    return True, cur_hash != self._branches[branch]
+    return True, cur_hash != self._branches[self.target_branch]
 
 
   def fetch_update(self, wait_helper: WaitTimeHelper) -> bool:
     cloudlog.info("attempting git fetch inside staging overlay")
 
-    params = Params()
-    params.put("UpdaterState", "fetching")
+    self.params.put("UpdaterState", "downloading")
 
     # TODO: cleanly interrupt this and invalid old
     set_consistent_flag(False)
-    params.put_bool("UpdateAvailable", False)
+    self.params.put_bool("UpdateAvailable", False)
 
     setup_git_options(OVERLAY_MERGED)
 
-    branch = Params().get("UpdaterTargetBranch", encoding='utf-8')
+    branch = self.target_branch
     git_fetch_output = run(["git", "fetch", "origin", branch], OVERLAY_MERGED, low_priority=True)
     cloudlog.info("git fetch success: %s", git_fetch_output)
 
@@ -352,7 +355,6 @@ class Updater:
 
       cloudlog.info("git reset in progress")
       cmds = [
-        #["git", "switch", "--force", "--no-recurse-submodules", "--track", f"origin/{branch}"],
         ["git", "checkout", "--force", "--no-recurse-submodules", branch],
         ["git", "reset", "--hard", f"origin/{branch}"],
         ["git", "clean", "-xdf"],
@@ -366,10 +368,10 @@ class Updater:
         handle_agnos_update(wait_helper)
 
       new_hash = run(["git", "rev-parse", "HEAD"], OVERLAY_MERGED).rstrip()
-      params.put("UpdaterNewDescription", f"0.8.17 / {branch} / {new_hash[:7]}")
+      self.params.put("UpdaterNewDescription", f"0.8.17 / {branch} / {new_hash[:7]}")
 
       # Create the finalized, ready-to-swap update
-      params.put("UpdaterState", "copying")
+      self.params.put("UpdaterState", "copying")
       finalize_update(wait_helper)
       cloudlog.info("openpilot update successful!")
     else:
@@ -427,18 +429,17 @@ def main() -> None:
       # TODO: still needed? skip this and just fetch?
       # Lightweight internt check
       params.put("UpdaterState", "checking")
-      internet_ok, update_available = updater.check_for_update()
-      if internet_ok and not update_available:
-        update_failed_count = 0
+      update_available = updater.check_for_update()
 
       # Fetch update
-      if wait_helper.fetch_update and update_available:
+      if wait_helper.fetch_update:
         wait_helper.fetch_update = False
         new_version = updater.fetch_update(wait_helper)
-        update_failed_count = 0
         params.put_bool("UpdaterFetchAvailable", False)
       else:
         params.put_bool("UpdaterFetchAvailable", update_available)
+
+      update_failed_count = 0
     except subprocess.CalledProcessError as e:
       cloudlog.event(
         "update process failed",
