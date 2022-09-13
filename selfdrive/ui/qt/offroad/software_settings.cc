@@ -17,7 +17,7 @@
 
 
 void SoftwarePanel::checkForUpdates() {
-  std::system("pkill -SIGHUP -f selfdrive.updated");
+  std::system("pkill -SIGUSR1 -f selfdrive.updated");
 }
 
 SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
@@ -37,7 +37,7 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
     if (downloadBtn->text() == "CHECK") {
       checkForUpdates();
     } else {
-      std::system("pkill -SIGUSR1 -f selfdrive.updated");
+      std::system("pkill -SIGHUP -f selfdrive.updated");
     }
   });
   addItem(downloadBtn);
@@ -53,8 +53,9 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
   // branch selecting
   targetBranchBtn = new ButtonControl(tr("Target Branch"), tr("SELECT"));
   connect(targetBranchBtn, &ButtonControl::clicked, [=]() {
+    auto current = params.get("GitBranch");
     QStringList branches = QString::fromStdString(params.get("UpdaterAvailableBranches")).split(",");
-    for (QString b : {"devel-staging", "devel", "master-ci", "master"}) {
+    for (QString b : {current.c_str(), "devel-staging", "devel", "master-ci", "master"}) {
       auto i = branches.indexOf(b);
       if (i >= 0) {
         branches.removeAt(i);
@@ -144,14 +145,11 @@ void SoftwarePanel::updateLabels() {
   targetBranchBtn->setValue(QString::fromStdString(params.get("UpdaterTargetBranch")));
 
   // current + new versions
-  auto branch = QString::fromStdString(params.get("GitBranch"));
-  auto commit = QString::fromStdString(params.get("GitCommit")).left(7);
-  versionLbl->setValue(QString(QString("0.8.17") + " / " + branch + " / " + commit).left(35));
+  versionLbl->setValue(QString::fromStdString(params.get("UpdaterCurrentDescription")).left(35));
   versionLbl->setDescription(QString::fromStdString(params.get("UpdaterCurrentReleaseNotes")));
 
   installBtn->setVisible(!is_onroad && params.getBool("UpdateAvailable"));
-  QString desc = QString::fromStdString(params.get("UpdaterNewDescription"));
-  installBtn->setValue(desc.left(35));
+  installBtn->setValue(QString::fromStdString(params.get("UpdaterNewDescription")).left(35));
   installBtn->setDescription(QString::fromStdString(params.get("UpdaterNewReleaseNotes")));
 
   update();
