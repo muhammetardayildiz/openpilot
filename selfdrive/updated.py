@@ -107,7 +107,7 @@ def set_consistent_flag(consistent: bool) -> None:
     consistent_file.unlink(missing_ok=True)
   os.sync()
 
-def parse_release_notes(basedir: str) -> bytes:
+def parse_release_notes(basedir: str):
   try:
     with open(os.path.join(basedir, "RELEASES.md"), "rb") as f:
       r = f.read().split(b'\n\n', 1)[0]  # Slice latest release notes
@@ -156,13 +156,11 @@ def init_overlay() -> None:
   if overlay_init_file.is_file():
     git_dir_path = os.path.join(BASEDIR, ".git")
     new_files = run(["find", git_dir_path, "-newer", str(overlay_init_file)])
-    # TODO: remove this
-    return
-    #if not len(new_files.splitlines()):
-    #  # A valid overlay already exists
-    #  return
-    #else:
-    #  cloudlog.info(".git directory changed, recreating overlay")
+    if not len(new_files.splitlines()):
+      # A valid overlay already exists
+      return
+    else:
+      cloudlog.info(".git directory changed, recreating overlay")
 
   cloudlog.info("preparing new safe staging area")
 
@@ -199,7 +197,7 @@ def init_overlay() -> None:
 
   git_diff = run(["git", "diff"], OVERLAY_MERGED, low_priority=True)
   params.put("GitDiff", git_diff)
-  #cloudlog.info(f"git diff output:\n{git_diff}")
+  cloudlog.info(f"git diff output:\n{git_diff}")
 
 
 def finalize_update(wait_helper: WaitTimeHelper) -> None:
@@ -265,14 +263,15 @@ class Updater:
     self._branches = {}
 
   @property
-  def target_branch(self) -> str:
+  def target_branch(self):
     b = self.params.get("UpdaterTargetBranch", encoding='utf-8')
     if b is None:
-      self.params.put("UpdaterTargetBranch", self.get_branch(BASEDIR))
+      b = self.get_branch(BASEDIR)
+      self.params.put("UpdaterTargetBranch", b)
     return b
 
   @property
-  def update_ready(self) -> bool:
+  def update_ready(self):
     consistent_file = Path(os.path.join(FINALIZED, ".overlay_consistent"))
     if consistent_file.is_file():
       hash_mismatch = self.get_commit_hash(BASEDIR) != self._branches[self.target_branch]
@@ -282,15 +281,15 @@ class Updater:
     return False
 
   @property
-  def update_available(self) -> bool:
+  def update_available(self):
     hash_mismatch = self.get_commit_hash(OVERLAY_MERGED) != self._branches[self.target_branch]
     branch_mismatch = self.get_branch(OVERLAY_MERGED) != self.target_branch
     return hash_mismatch or branch_mismatch
 
-  def get_branch(self, path: str) -> str:
+  def get_branch(self, path: str):
     return run(["git", "rev-parse", "--abbrev-ref", "HEAD"], path, low_priority=True).rstrip()
 
-  def get_commit_hash(self, path: str = OVERLAY_MERGED) -> str:
+  def get_commit_hash(self, path: str = OVERLAY_MERGED):
     return run(["git", "rev-parse", "HEAD"], path, low_priority=True).rstrip()
 
   def set_params(self, failed_count: int, exception: Optional[str]) -> None:
